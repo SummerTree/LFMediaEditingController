@@ -8,29 +8,57 @@
 
 #import <UIKit/UIKit.h>
 #import "LFPhotoEditDelegate.h"
-#import "LFColorMatrixType.h"
+#import "LFStickerItem.h"
+#import "LFMediaEditingType.h"
 
-@class LFText;
+#import "LFPaintBrush.h"
+#import "LFStampBrush.h"
+#import "LFHighlightBrush.h"
+#import "LFChalkBrush.h"
+#import "LFFluorescentBrush.h"
+#import "LFBlurryBrush.h"
+#import "LFMosaicBrush.h"
+#import "LFSmearBrush.h"
+
+NS_ASSUME_NONNULL_BEGIN
+
+@class LFBrush, LFDrawView, LFStickerView, LFDataFilterImageView, LFDataFilterVideoView;
+@protocol LFEditingProtocol;
+
+// 实现LFEditingProtocol的所有非必要方法。
+@interface UIView (LFEditingProtocol)
+
+// 协议执行者
+@property (nonatomic, weak) UIView <LFEditingProtocol>* lf_protocolxecutor;
+
+/** 绘画 */
+@property (nonatomic, weak) LFDrawView *lf_drawView;
+/** 贴图 */
+@property (nonatomic, weak) LFStickerView *lf_stickerView;
+/** 模糊（马赛克、高斯模糊、涂抹） */
+@property (nonatomic, weak) LFDrawView *lf_splashView;
+
+/** 图片展示 */
+@property (nonatomic, weak) LFDataFilterImageView *lf_imageView;
+/** 视频展示 */
+@property (nonatomic, weak) LFDataFilterVideoView *lf_playerView;
+
+@end
+
 @protocol LFEditingProtocol <NSObject>
-
-/** 代理 */
-@property (nonatomic ,weak) id<LFPhotoEditDelegate> editDelegate;
-
-/** 禁用其他功能 */
-- (void)photoEditEnable:(BOOL)enable;
 
 /** =====================数据===================== */
 
 /** 数据 */
-@property (nonatomic, strong) NSDictionary *photoEditData;
+@property (nonatomic, strong, nullable) NSDictionary *photoEditData;
 
-/** =====================滤镜功能===================== */
-/** 滤镜类型 */
-- (void)changeFilterColorMatrixType:(LFColorMatrixType)cmType;
-/** 当前使用滤镜类型 */
-- (LFColorMatrixType)getFilterColorMatrixType;
-/** 获取滤镜图片 */
-- (UIImage *)getFilterImage;
+@optional
+/** =====================设置项===================== */
+/** 代理 */
+@property (nonatomic, weak) id<LFPhotoEditDelegate> editDelegate;
+
+/** 禁用其他功能 */
+- (void)photoEditEnable:(BOOL)enable;
 
 /** =====================绘画功能===================== */
 
@@ -38,30 +66,39 @@
 @property (nonatomic, assign) BOOL drawEnable;
 /** 是否可撤销 */
 @property (nonatomic, readonly) BOOL drawCanUndo;
+/** 正在绘画 */
+@property (nonatomic, readonly) BOOL isDrawing;
 /** 撤销绘画 */
 - (void)drawUndo;
+/** 设置绘画画笔 */
+- (void)setDrawBrush:(LFBrush *)brush;
 /** 设置绘画颜色 */
 - (void)setDrawColor:(UIColor *)color;
+/** 设置绘画线粗 */
+- (void)setDrawLineWidth:(CGFloat)lineWidth;
 
 /** =====================贴图功能===================== */
+/** 贴图启用 */
+@property (nonatomic, readonly) BOOL stickerEnable;
 /** 取消激活贴图 */
 - (void)stickerDeactivated;
 /** 激活选中的贴图 */
 - (void)activeSelectStickerView;
 /** 删除选中贴图 */
 - (void)removeSelectStickerView;
+/** 屏幕缩放率 */
+- (void)setScreenScale:(CGFloat)scale;
+/** 最小缩放率 默认0.2 */
+@property (nonatomic, assign) CGFloat stickerMinScale;
+/** 最大缩放率 默认3.0 */
+@property (nonatomic, assign) CGFloat stickerMaxScale;
 
 /** 创建贴图 */
-- (void)createStickerImage:(UIImage *)image;
-
-/** =====================文字功能===================== */
-
+- (void)createSticker:(LFStickerItem *)item;
 /** 获取选中贴图的内容 */
-- (LFText *)getSelectStickerText;
+- (LFStickerItem *)getSelectSticker;
 /** 更改选中贴图内容 */
-- (void)changeSelectStickerText:(LFText *)text;
-/** 创建文字 */
-- (void)createStickerText:(LFText *)text;
+- (void)changeSelectSticker:(LFStickerItem *)item;
 
 /** =====================模糊功能===================== */
 
@@ -69,9 +106,23 @@
 @property (nonatomic, assign) BOOL splashEnable;
 /** 是否可撤销 */
 @property (nonatomic, readonly) BOOL splashCanUndo;
+/** 正在模糊 */
+@property (nonatomic, readonly) BOOL isSplashing;
 /** 撤销模糊 */
 - (void)splashUndo;
-/** 改变模糊状态 */
-@property (nonatomic, readwrite) BOOL splashState;
+/** 设置模糊类型 */
+@property (nonatomic, assign) LFSplashStateType splashStateType;
+/** 设置模糊线粗 */
+- (void)setSplashLineWidth:(CGFloat)lineWidth;
+
+/** =====================滤镜功能===================== */
+/** 滤镜类型 */
+- (void)changeFilterType:(NSInteger)cmType;
+/** 当前使用滤镜类型 */
+- (NSInteger)getFilterType;
+/** 获取滤镜图片 */
+- (UIImage *)getFilterImage;
 
 @end
+
+NS_ASSUME_NONNULL_END

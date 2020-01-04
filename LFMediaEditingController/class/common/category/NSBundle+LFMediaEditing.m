@@ -26,7 +26,7 @@ NSString *const LFMediaEditingStrings = @"LFMediaEditingController";
 + (UIImage *)LFME_imageNamed:(NSString *)name inDirectory:(NSString *)subpath
 {
     //  [UIImage imageNamed:[NSString stringWithFormat:@"%@/%@", kBundlePath, name]]
-    NSString *extension = name.pathExtension.length ? name.pathExtension : @"png";
+    NSString *extension = name.length ? (name.pathExtension.length ? name.pathExtension : @"png") : nil;
     NSString *defaultName = [name stringByDeletingPathExtension];
     NSString *bundleName = [defaultName stringByAppendingString:@"@2x"];
     //    CGFloat scale = [UIScreen mainScreen].scale;
@@ -53,6 +53,16 @@ NSString *const LFMediaEditingStrings = @"LFMediaEditingController";
 + (UIImage *)LFME_stickersImageNamed:(NSString *)name
 {
     return [self LFME_imageNamed:name inDirectory:@"stickers"];
+}
+
++ (UIImage *)LFME_audioTrackImageNamed:(NSString *)name
+{
+    return [self LFME_imageNamed:name inDirectory:@"AudioTrack"];
+}
+
++ (UIImage *)LFME_brushImageNamed:(NSString *)name
+{
+    return [self LFME_imageNamed:name inDirectory:@"brush"];
 }
 
 + (NSString *)LFME_stickersPath

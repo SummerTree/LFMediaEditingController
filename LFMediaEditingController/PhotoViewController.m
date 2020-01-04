@@ -8,12 +8,18 @@
 
 #import "PhotoViewController.h"
 #import "UIImage+LF_Format.h"
+#import "LFMEGIFImageSerialization.h"
 
 #import "LFPhotoEditingController.h"
+#import "UIImage+LFMECommon.h"
 
-@interface PhotoViewController () <LFPhotoEditingControllerDelegate>
+// 测试UIModalPresentationPageSheet模式
+//#define PresentationPageSheet
+
+@interface PhotoViewController () <LFPhotoEditingControllerDelegate,UINavigationControllerDelegate,UIImagePickerControllerDelegate>
 
 @property (nonatomic, strong) UIImage *image;
+@property (nonatomic, strong) NSArray<NSNumber *> *durations;
 @property (nonatomic, weak) UIImageView *imageView;
 /** 需要保存到编辑数据 */
 @property (nonatomic, strong) LFPhotoEdit *photoEdit;
@@ -29,19 +35,27 @@
     self.view.backgroundColor = [UIColor redColor];
     
     /** 拍照图片 */
-    UIImage *image = [UIImage imageNamed:@"1.jpg"];
+    NSString *imagePath = [[NSBundle mainBundle] pathForResource:@"1.jpg" ofType:nil];
+    
     /** gif */
-//    UIImage *image = [UIImage LF_imageWithImagePath:[[NSBundle mainBundle] pathForResource:@"4.gif" ofType:nil]];
+//    NSString *imagePath = [[NSBundle mainBundle] pathForResource:@"4.gif" ofType:nil];
+    /**
+     真实播放GIF
+     */
+//    NSData *imgData = [NSData dataWithContentsOfFile:imagePath options:NSDataReadingMappedIfSafe error:nil];
+//    self.durations = LFME_UIImageGIFDurationsFromData(imgData, nil);
     /** 非拍照图片 */
-//    UIImage *image = [UIImage imageNamed:@"2.png"];
+//    NSString *imagePath = [[NSBundle mainBundle] pathForResource:@"2.png" ofType:nil];
     /** 长图 */
-//    UIImage *image = [UIImage imageNamed:@"longImage.jpg"];
+//    NSString *imagePath = [[NSBundle mainBundle] pathForResource:@"longImage.jpg" ofType:nil];
+    /** 使用UIImage imageNamed加载的UIImage不能序列化 */
+    UIImage *image = [UIImage LF_imageWithImagePath:imagePath];
     /** 必须确保图片方向是正确的，当然有很多方法更正图片的方向，这里只是举例，请酌情参考。 */
     if (image.images.count) {
         self.image = image;
     } else {
         /** 普通图片更正方向 */
-        self.image = [UIImage imageWithCGImage:image.CGImage scale:[UIScreen mainScreen].scale orientation:UIImageOrientationUp];
+        self.image = [image LFME_fixOrientation];
     }
     
     UIImageView *imageView = [[UIImageView alloc] initWithFrame:self.view.bounds];
@@ -52,21 +66,86 @@
     
     _imageView = imageView;
     
-    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemEdit target:self action:@selector(photoEditing)];
+    UIBarButtonItem *editItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemEdit target:self action:@selector(photoEditing)];
+    UIBarButtonItem *fixedSpace = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace target:self action:nil];
+    UIBarButtonItem *addItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(photoadd)];
+    
+    self.navigationItem.rightBarButtonItems = @[editItem, fixedSpace, addItem];
+}
+
+- (void)viewSafeAreaInsetsDidChange
+{
+    [super viewSafeAreaInsetsDidChange];
+    if (self.view.safeAreaInsets.bottom > 0) {    
+        CGFloat top = self.view.safeAreaInsets.top - self.navigationController.navigationBar.frame.size.height;
+        self.imageView.frame = CGRectMake(self.view.bounds.origin.x, self.view.bounds.origin.y+top, self.view.bounds.size.width, self.view.bounds.size.height-top-self.view.safeAreaInsets.bottom);
+    }
+}
+
+- (void)photoadd
+{
+    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
+    
+    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;//指定数据来源是相册
+    
+    picker.delegate = self;
+    
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+//选取图片之后执行的方法
+
+- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<NSString *,id> *)info{
+    
+    NSLog(@"%@",info);//是个字典
+    
+    //通过字典的key值来找到图片
+    
+    self.image = [info objectForKey:UIImagePickerControllerOriginalImage];//选取的是原始图片。还有其他的样式；如编辑的图片：UIImagePickerControllerEditedImage
+    
+    //并且赋值给声明好的imageView
+    
+    self.imageView.image = self.image;
+    self.photoEdit = nil;
+    //最后模态返回 最初的 控制器
+    
+    [picker dismissViewControllerAnimated:YES completion:nil];
+    
 }
 
 - (void)photoEditing
 {
     LFPhotoEditingController *lfPhotoEditVC = [[LFPhotoEditingController alloc] init];
 //    lfPhotoEditVC.operationType = LFPhotoEditOperationType_draw | LFPhotoEditOperationType_splash;
+//    lfPhotoEditVC.defaultOperationType = LFPhotoEditOperationType_crop; // 默认剪裁
+//    lfPhotoEditVC.operationAttrs = @{
+//                                     LFPhotoEditDrawColorAttributeName:@(LFPhotoEditOperationSubTypeDrawVioletRedColor), // 绘画紫罗兰红色
+//                                     LFPhotoEditDrawBrushAttributeName:@(LFPhotoEditOperationSubTypeDrawStampFruitBrush), // 绘画笔刷
+////                                     LFPhotoEditStickerAttributeName:@"描述（贴图路径）",
+//                                     LFPhotoEditTextColorAttributeName:@(LFPhotoEditOperationSubTypeTextAzureColor), // 字体天蓝色
+//                                     LFPhotoEditSplashAttributeName:@(LFPhotoEditOperationSubTypeSplashPaintbrush), //涂抹效果
+//                                     LFPhotoEditFilterAttributeName:@(LFPhotoEditOperationSubTypeProcessFilter), //滤镜效果
+//                                     LFPhotoEditCropAspectRatioAttributeName:@(LFPhotoEditOperationSubTypeCropAspectRatio1x1), //剪裁尺寸
+//                                     LFPhotoEditCropCanRotateAttributeName:@(NO), //不允许剪切旋转
+//                                     LFPhotoEditCropCanAspectRatioAttributeName:@(NO), //不允许剪切比例调整
+//                                     };
+    
     lfPhotoEditVC.delegate = self;
-    if (self.photoEdit) {
-        lfPhotoEditVC.photoEdit = self.photoEdit;
+    LFPhotoEdit *photoEdit = self.photoEdit;
+    if (photoEdit) {
+        lfPhotoEditVC.photoEdit = photoEdit;
     } else {
-        lfPhotoEditVC.editImage = self.imageView.image;
+        [lfPhotoEditVC setEditImage:self.image durations:self.durations];
     }
+    
+#ifdef PresentationPageSheet
+    UINavigationController *navi = [[UINavigationController alloc] initWithRootViewController:lfPhotoEditVC];
+    [navi setNavigationBarHidden:YES];
+    [self presentViewController:navi animated:YES completion:nil];
+#else
     [self.navigationController setNavigationBarHidden:YES];
     [self.navigationController pushViewController:lfPhotoEditVC animated:NO];
+#endif
     
 }
 
@@ -76,15 +155,23 @@
 }
 
 #pragma mark - LFPhotoEditingControllerDelegate
-- (void)lf_PhotoEditingController:(LFPhotoEditingController *)photoEditingVC didCancelPhotoEdit:(LFPhotoEdit *)photoEdit
+- (void)lf_PhotoEditingControllerDidCancel:(LFPhotoEditingController *)photoEditingVC
 {
+#ifdef PresentationPageSheet
+    [self dismissViewControllerAnimated:YES completion:nil];
+#else
     [self.navigationController popViewControllerAnimated:NO];
     [self.navigationController setNavigationBarHidden:NO];
+#endif
 }
 - (void)lf_PhotoEditingController:(LFPhotoEditingController *)photoEditingVC didFinishPhotoEdit:(LFPhotoEdit *)photoEdit
 {
+#ifdef PresentationPageSheet
+    [self dismissViewControllerAnimated:YES completion:nil];
+#else
     [self.navigationController popViewControllerAnimated:NO];
     [self.navigationController setNavigationBarHidden:NO];
+#endif
     if (photoEdit) {
         self.imageView.image = photoEdit.editPreviewImage;
     } else {

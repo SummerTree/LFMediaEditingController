@@ -9,6 +9,7 @@
 #import "VideoViewController.h"
 #import <AVFoundation/AVFoundation.h>
 #import "LFVideoEditingController.h"
+#import "AVAsset+LFMECommon.h"
 
 @interface VideoViewController () <LFVideoEditingControllerDelegate>
 
@@ -29,13 +30,15 @@
     
     self.view.backgroundColor = [UIColor blackColor];
     
-    /** 非拍摄视频 */
-//    self.url = [[NSBundle mainBundle] URLForResource:@"1" withExtension:@"mp4"];
     /** 拍摄视频 */
-    self.url = [[NSBundle mainBundle] URLForResource:@"2" withExtension:@"mp4"];
-//    self.url = [[NSBundle mainBundle] URLForResource:@"3" withExtension:@"m4v"];
+//    self.url = [[NSBundle mainBundle] URLForResource:@"2" withExtension:@"mp4"];
+    /** 非拍摄视频 */
+    //  self.url = [[NSBundle mainBundle] URLForResource:@"3" withExtension:@"m4v"];
+    /** 相册视频（方向不正确） */
+    self.url = [[NSBundle mainBundle] URLForResource:@"4" withExtension:@"MOV"];
     
-    self.firstImage = [self getVideoFirstImage:self.url];
+    AVURLAsset *asset = [[AVURLAsset alloc] initWithURL:self.url options:nil];
+    self.firstImage = [asset lf_firstImage:nil];
     _player = [AVPlayer playerWithURL:self.url];
     [self.player addObserver:self forKeyPath:@"status" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:nil];
     AVPlayerLayer *playerLayer = [AVPlayerLayer playerLayerWithPlayer:_player];
@@ -46,24 +49,13 @@
     self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemEdit target:self action:@selector(videoEditing)];
 }
 
-- (UIImage *)getVideoFirstImage:(NSURL *)videoURL
+- (void)viewSafeAreaInsetsDidChange
 {
-    AVURLAsset *asset = [[AVURLAsset alloc] initWithURL:videoURL options:nil];
-    NSParameterAssert(asset);
-    AVAssetImageGenerator *assetImageGenerator = [[AVAssetImageGenerator alloc] initWithAsset:asset];
-    assetImageGenerator.appliesPreferredTrackTransform = YES;
-    assetImageGenerator.apertureMode =AVAssetImageGeneratorApertureModeEncodedPixels;
-    assetImageGenerator.maximumSize = CGSizeMake([UIScreen mainScreen].bounds.size.width * [UIScreen mainScreen].scale, [UIScreen mainScreen].bounds.size.height * [UIScreen mainScreen].scale);
-    
-    CGImageRef thumbnailImageRef = NULL;
-    CFTimeInterval thumbnailImageTime = 1;
-    NSError *thumbnailImageGenerationError = nil;
-    thumbnailImageRef = [assetImageGenerator copyCGImageAtTime:CMTimeMake(thumbnailImageTime, asset.duration.timescale) actualTime:NULL error:&thumbnailImageGenerationError];
-    
-    if(!thumbnailImageRef)
-        NSLog(@"thumbnailImageGenerationError %@",thumbnailImageGenerationError);
-    
-    return thumbnailImageRef ? [[UIImage alloc]initWithCGImage:thumbnailImageRef] : nil;
+    [super viewSafeAreaInsetsDidChange];
+    if (self.view.safeAreaInsets.bottom > 0) {
+        CGFloat top = self.view.safeAreaInsets.top - self.navigationController.navigationBar.frame.size.height;
+        self.playerLayer.frame = CGRectMake(self.view.bounds.origin.x, self.view.bounds.origin.y+top, self.view.bounds.size.width, self.view.bounds.size.height-top-self.view.safeAreaInsets.bottom);
+    }
 }
 
 - (void)dealloc
@@ -95,7 +87,19 @@
     LFVideoEditingController *lfVideoEditVC = [[LFVideoEditingController alloc] init];
     lfVideoEditVC.delegate = self;
 //    lfVideoEditVC.operationType = LFVideoEditOperationType_draw | LFVideoEditOperationType_clip;
-//    lfVideoEditVC.minClippingDuration = 3;
+//    lfVideoEditVC.defaultOperationType = LFVideoEditOperationType_clip; // 默认剪辑
+//    lfVideoEditVC.operationAttrs = @{
+//                                     LFVideoEditDrawColorAttributeName:@(LFVideoEditOperationSubTypeDrawVioletRedColor), // 绘画紫罗兰红色
+//                                     LFVideoEditDrawBrushAttributeName:@(LFVideoEditOperationSubTypeDrawHighlightBrush), // 绘画笔刷
+////                                     LFVideoEditStickerAttributeName:@"描述（贴图路径）",
+//                                     LFVideoEditTextColorAttributeName:@(LFVideoEditOperationSubTypeTextAzureColor), // 字体天蓝色
+//                                     LFVideoEditFilterAttributeName:@(LFVideoEditOperationSubTypeProcessFilter), //滤镜效果
+//                                     LFVideoEditAudioMuteAttributeName:@(true), //关闭原音
+////                                     LFVideoEditAudioUrlsAttributeName:@"描述（音频路径）",
+//                                     LFVideoEditRateAttributeName:@(0.5), //播放速率
+//                                     LFVideoEditClipMinDurationAttributeName:@(2), //剪辑最小时间
+//                                     LFVideoEditClipMaxDurationAttributeName:@(5) // 剪辑最大时间
+//                                     };
     if (self.videoEdit) {
         lfVideoEditVC.videoEdit = self.videoEdit;
     } else {

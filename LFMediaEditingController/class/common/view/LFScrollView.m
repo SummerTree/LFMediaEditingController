@@ -30,8 +30,8 @@
 
 - (void)lf_customInit
 {
-    self.delaysContentTouches = NO;
-    self.canCancelContentTouches = NO;
+//    self.delaysContentTouches = NO;
+//    self.canCancelContentTouches = NO;
     
     self.scrollsToTop = NO;
     self.showsHorizontalScrollIndicator = NO;
@@ -39,6 +39,10 @@
     
     if (@available(iOS 11.0, *)){
         [self setContentInsetAdjustmentBehavior:UIScrollViewContentInsetAdjustmentNever];
+    }
+    
+    if (@available(iOS 13.0, *)) {
+        self.automaticallyAdjustsScrollIndicatorInsets = NO;
     }
 }
 

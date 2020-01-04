@@ -9,6 +9,7 @@
 #import "LFClippingView.h"
 #import "LFZoomingView.h"
 #import "UIView+LFMEFrame.h"
+#import "UIImage+LFMECommon.h"
 #import <AVFoundation/AVFoundation.h>
 
 #define kRound(x) (round(x*100000)/100000)
@@ -37,8 +38,6 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 
 @property (nonatomic, weak) LFZoomingView *zoomingView;
 
-/** 原始坐标 */
-@property (nonatomic, assign) CGRect originalRect;
 /** 开始的基础坐标 */
 @property (nonatomic, assign) CGRect normalRect;
 /** 处理完毕的基础坐标（因为可能会被父类在缩放时改变当前frame的问题，导致记录坐标不正确） */
@@ -47,8 +46,6 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 @property (nonatomic, assign) CGFloat first_minimumZoomScale;
 /** 旋转系数 */
 @property (nonatomic, assign) NSInteger angle;
-/** 与父视图中心偏差坐标 */
-@property (nonatomic, assign) CGPoint offsetSuperCenter;
 /** 默认最大化缩放 */
 @property (nonatomic, assign) CGFloat defaultMaximumZoomScale;
 
@@ -69,7 +66,6 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 {
     self = [super initWithFrame:frame];
     if (self) {
-        _originalRect = frame;
         [self customInit];
     }
     return self;
@@ -82,10 +78,12 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     self.delegate = self;
     self.minimumZoomScale = 1.0f;
     self.maximumZoomScale = kDefaultMaximumZoomScale;
+    self.defaultMaximumZoomScale = kDefaultMaximumZoomScale;
     self.alwaysBounceHorizontal = YES;
     self.alwaysBounceVertical = YES;
     self.angle = 0;
     self.offsetSuperCenter = CGPointZero;
+    self.useGesture = NO;
     
     LFZoomingView *zoomingView = [[LFZoomingView alloc] initWithFrame:self.bounds];
     __weak typeof(self) weakSelf = self;
@@ -94,6 +92,7 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
         CGRect newRect = [weakSelf.zoomingView convertRect:rect toView:weakSelf];
         CGRect clipTransRect = CGRectApplyAffineTransform(weakSelf.frame, weakSelf.transform);
         CGRect screenRect = (CGRect){weakSelf.contentOffset, clipTransRect.size};
+        screenRect = CGRectInset(screenRect, 44, 44);
         return !CGRectIntersectsRect(screenRect, newRect);
     };
     [self addSubview:zoomingView];
@@ -101,40 +100,46 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     
     /** 默认编辑范围 */
     _editRect = self.bounds;
+    
+    // 实现LFEditingProtocol协议
+    {
+        self.lf_protocolxecutor = self.zoomingView;
+    }
 }
 
 - (void)setImage:(UIImage *)image
 {
+    [self setImage:image durations:nil];
+}
+- (void)setImage:(UIImage *)image durations:(NSArray <NSNumber *> *)durations
+{
     _image = image;
     [self setZoomScale:1.f];
-    if (image) {        
-        CGRect cropRect = AVMakeRectWithAspectRatioInsideRect(image.size, self.originalRect);
-        self.frame = cropRect;
-        {
-            if (cropRect.size.width < cropRect.size.height) {
-                self.defaultMaximumZoomScale = self.originalRect.size.width * kDefaultMaximumZoomScale / cropRect.size.width;
-            } else {
-                self.defaultMaximumZoomScale = self.originalRect.size.height * kDefaultMaximumZoomScale / cropRect.size.height;
-            }
-            self.maximumZoomScale = self.defaultMaximumZoomScale;
+    if (image) {
+        if (self.frame.size.width < self.frame.size.height) {
+            self.defaultMaximumZoomScale = [UIScreen mainScreen].bounds.size.width * kDefaultMaximumZoomScale / self.frame.size.width;
+        } else {
+            self.defaultMaximumZoomScale = [UIScreen mainScreen].bounds.size.height * kDefaultMaximumZoomScale / self.frame.size.height;
         }
-    } else {
-        self.frame = _originalRect;
+        self.maximumZoomScale = self.defaultMaximumZoomScale;
     }
     self.normalRect = self.frame;
     self.saveRect = self.frame;
     self.contentSize = self.size;
-    [self.zoomingView setImage:image];
+    self.zoomingView.frame = self.bounds;
+    [self.zoomingView setImage:image durations:durations];
 }
 
-- (void)setImageViewHidden:(BOOL)imageViewHidden
+/** 获取除图片以外的编辑图层 */
+- (UIImage *)editOtherImagesInRect:(CGRect)rect rotate:(CGFloat)rotate
 {
-    self.zoomingView.imageViewHidden = imageViewHidden;
-}
-
-- (BOOL)isImageViewHidden
-{
-    return self.zoomingView.imageViewHidden;
+    CGRect inRect = [self.superview convertRect:rect toView:self.zoomingView];
+    /** 参数取整，否则可能会出现1像素偏差 */
+    inRect.origin.x = ((int)(inRect.origin.x+0.5)*1.f);
+    inRect.origin.y = ((int)(inRect.origin.y+0.5)*1.f);
+    inRect.size.width = ((int)(inRect.size.width+0.5)*1.f);
+    inRect.size.height = ((int)(inRect.size.height+0.5)*1.f);
+    return [self.zoomingView editOtherImagesInRect:inRect rotate:rotate];
 }
 
 - (void)setCropRect:(CGRect)cropRect
@@ -160,11 +165,6 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     CGRect oldFrame = self.frame;
     self.frame = cropRect;
     self.saveRect = self.frame;
-    /** 计算与父界面的中心偏差坐标 */
-    CGFloat offset_x = (CGRectGetWidth(self.superview.frame)-CGRectGetWidth(cropRect))/2-cropRect.origin.x;
-    CGFloat offset_y = (CGRectGetHeight(self.superview.frame)-CGRectGetHeight(cropRect))/2-cropRect.origin.y;
-    self.offsetSuperCenter = CGPointMake(offset_x, offset_y);
-    
     
     CGFloat scale = self.zoomScale;
     /** 视图位移 */
@@ -211,43 +211,75 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 
 - (void)reset
 {
+    [self resetToRect:CGRectZero];
+}
+
+- (void)resetToRect:(CGRect)rect
+{
     if (!_isReseting) {        
         _isReseting = YES;
-        [UIView animateWithDuration:0.25
-                              delay:0.0
-                            options:UIViewAnimationOptionBeginFromCurrentState
-                         animations:^{
-                             self.transform = CGAffineTransformIdentity;
-                             self.angle = 0;
-                             self.minimumZoomScale = self.first_minimumZoomScale;
-                             [self setZoomScale:self.minimumZoomScale];
-                             self.frame = (CGRect){CGPointZero, self.zoomingView.size};
-                             self.center = CGPointMake(self.superview.center.x-self.offsetSuperCenter.x/2, self.superview.center.y-self.offsetSuperCenter.y/2);
-                             self.saveRect = self.frame;
-                             /** 重设contentSize */
-                             self.contentSize = self.zoomingView.size;
-                             /** 重置contentOffset */
-                             self.contentOffset = CGPointZero;
-                             if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewWillBeginZooming:)]) {
-                                 void (^block)(CGRect) = [self.clippingDelegate lf_clippingViewWillBeginZooming:self];
-                                 if (block) block(self.frame);
-                             }
-                         } completion:^(BOOL finished) {
-                             if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
-                                 [self.clippingDelegate lf_clippingViewDidEndZooming:self];
-                             }
-                             _isReseting = NO;
-                         }];
+        if (CGRectEqualToRect(rect, CGRectZero)) {
+            [UIView animateWithDuration:0.25
+                                  delay:0.0
+                                options:UIViewAnimationOptionBeginFromCurrentState
+                             animations:^{
+                                 self.transform = CGAffineTransformIdentity;
+                                 self.angle = 0;
+                                 self.minimumZoomScale = self.first_minimumZoomScale;
+                                 [self setZoomScale:self.minimumZoomScale];
+                                 self.frame = (CGRect){CGPointZero, self.zoomingView.size};
+                                 self.center = CGPointMake(self.superview.center.x-self.offsetSuperCenter.x/2, self.superview.center.y-self.offsetSuperCenter.y/2);
+                                 self.saveRect = self.frame;
+                                 /** 重设contentSize */
+                                 self.contentSize = self.zoomingView.size;
+                                 /** 重置contentOffset */
+                                 self.contentOffset = CGPointZero;
+                                 if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewWillBeginZooming:)]) {
+                                     void (^block)(CGRect) = [self.clippingDelegate lf_clippingViewWillBeginZooming:self];
+                                     if (block) block(self.frame);
+                                 }
+                             } completion:^(BOOL finished) {
+                                 if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
+                                     [self.clippingDelegate lf_clippingViewDidEndZooming:self];
+                                 }
+                                 self->_isReseting = NO;
+                             }];
+        } else {
+            [UIView animateWithDuration:0.25
+                                  delay:0.0
+                                options:UIViewAnimationOptionBeginFromCurrentState
+                             animations:^{
+                                 self.transform = CGAffineTransformIdentity;
+                                 self.angle = 0;
+                                 self.minimumZoomScale = self.first_minimumZoomScale;
+                                 [self setZoomScale:self.minimumZoomScale];
+                                 self.frame = (CGRect){CGPointZero, self.zoomingView.size};
+                                 self.center = CGPointMake(self.superview.center.x-self.offsetSuperCenter.x/2, self.superview.center.y-self.offsetSuperCenter.y/2);
+                                 /** 重设contentSize */
+                                 self.contentSize = self.zoomingView.size;
+                                 /** 重置contentOffset */
+                                 self.contentOffset = CGPointZero;
+                                 [self zoomInToRect:rect];
+                                 [self zoomOutToRect:rect completion:^{
+                                     self->_isReseting = NO;
+                                 }];
+                             } completion:nil];
+        }
     }
 }
 
 - (BOOL)canReset
 {
-    CGRect trueFrame = CGRectMake((CGRectGetWidth(self.superview.frame)-CGRectGetWidth(self.zoomingView.frame))/2-self.offsetSuperCenter.x
-                                  , (CGRectGetHeight(self.superview.frame)-CGRectGetHeight(self.zoomingView.frame))/2-self.offsetSuperCenter.y
+    CGRect superViewRect = self.superview.bounds;
+    CGRect trueFrame = CGRectMake((CGRectGetWidth(superViewRect)-CGRectGetWidth(self.zoomingView.frame))/2-self.offsetSuperCenter.x/2
+                                  , (CGRectGetHeight(superViewRect)-CGRectGetHeight(self.zoomingView.frame))/2-self.offsetSuperCenter.y/2
                                   , CGRectGetWidth(self.zoomingView.frame)
                                   , CGRectGetHeight(self.zoomingView.frame));
-    
+    return [self canResetWithRect:trueFrame];
+}
+
+- (BOOL)canResetWithRect:(CGRect)trueFrame
+{
     return !(CGAffineTransformIsIdentity(self.transform)
              && kRound(self.zoomScale) == kRound(self.minimumZoomScale)
              && [self verifyRect:trueFrame]);
@@ -274,6 +306,10 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 
 #pragma mark 缩小到指定坐标
 - (void)zoomOutToRect:(CGRect)toRect
+{
+    [self zoomOutToRect:toRect completion:nil];
+}
+- (void)zoomOutToRect:(CGRect)toRect completion:(void (^)(void))completion
 {
     /** 屏幕在滚动时 不触发该功能 */
     if (self.dragging || self.decelerating) {
@@ -310,6 +346,9 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
                              if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
                                  [self.clippingDelegate lf_clippingViewDidEndZooming:self];
                              }
+                             if (completion) {
+                                 completion();
+                             }
                          }];
         return;
     }
@@ -324,8 +363,8 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     scaledHeight = MIN(scaledHeight, CGRectGetHeight(zoomViewRect) * (zoomScale / self.minimumZoomScale));
     
     /** 计算实际显示坐标 */
-    CGRect cropRect = CGRectMake((CGRectGetWidth(self.superview.bounds) - scaledWidth) / 2,
-                                 (CGRectGetHeight(self.superview.bounds) - scaledHeight) / 2,
+    CGRect cropRect = CGRectMake((CGRectGetWidth(self.superview.bounds) - scaledWidth) / 2 - self.offsetSuperCenter.x/2,
+                                 (CGRectGetHeight(self.superview.bounds) - scaledHeight) / 2  - self.offsetSuperCenter.y/2,
                                  scaledWidth,
                                  scaledHeight);
     
@@ -358,11 +397,13 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
                          if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewWillBeginZooming:)]) {
                              void (^block)(CGRect) = [self.clippingDelegate lf_clippingViewWillBeginZooming:self];
                              if (block) block(self.frame);
-                             block = nil;
                          }
                      } completion:^(BOOL finished) {
                          if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
                              [self.clippingDelegate lf_clippingViewDidEndZooming:self];
+                         }
+                         if (completion) {
+                             completion();
                          }
                      }];
 }
@@ -413,7 +454,7 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
         
         _angle = newAngle;
 
-        [UIView animateWithDuration:0.45f delay:0.0f usingSpringWithDamping:1.0f initialSpringVelocity:0.8f options:UIViewAnimationOptionBeginFromCurrentState animations:^{
+        [UIView animateWithDuration:0.25f delay:0.0f usingSpringWithDamping:1.0f initialSpringVelocity:0.8f options:UIViewAnimationOptionBeginFromCurrentState animations:^{
             
             [self transformRotate:self.angle];
             
@@ -423,7 +464,7 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
             }
             
         } completion:^(BOOL complete) {
-            _isRotating = NO;
+            self->_isRotating = NO;
             if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
                 [self.clippingDelegate lf_clippingViewDidEndZooming:self];
             }
@@ -433,6 +474,11 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 }
 
 #pragma mark - UIScrollViewDelegate
+- (void)scrollViewDidScroll:(UIScrollView *)scrollView
+{
+//    [self.displayView setNeedsDisplay];
+}
+
 - (void)scrollViewWillBeginDragging:(UIScrollView *)scrollView
 {
     if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewWillBeginDragging:)]) {
@@ -471,6 +517,13 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 
 - (void)scrollViewDidZoom:(UIScrollView *)scrollView
 {
+    self.contentInset = UIEdgeInsetsZero;
+    self.scrollIndicatorInsets = UIEdgeInsetsZero;
+    if (scrollView.isZooming || scrollView.isZoomBouncing) {
+        /** 代码调整zoom，会导致居中计算错误，必须2指控制UI自动缩放时才调用 */
+        [self refreshImageZoomViewCenter];
+    }
+//    [self.displayView setNeedsDisplay];
     if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidZoom:)]) {
         [self.clippingDelegate lf_clippingViewDidZoom:self];
     }
@@ -481,6 +534,16 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     if ([self.clippingDelegate respondsToSelector:@selector(lf_clippingViewDidEndZooming:)]) {
         [self.clippingDelegate lf_clippingViewDidEndZooming:self];
     }
+}
+
+#pragma mark - Private
+- (void)refreshImageZoomViewCenter {
+    
+    CGRect rect = CGRectApplyAffineTransform(self.frame, self.transform);
+    
+    CGFloat offsetX = (rect.size.width > self.contentSize.width) ? ((rect.size.width - self.contentSize.width) * 0.5) : 0.0;
+    CGFloat offsetY = (rect.size.height > self.contentSize.height) ? ((rect.size.height - self.contentSize.height) * 0.5) : 0.0;
+    self.zoomingView.center = CGPointMake(self.contentSize.width * 0.5 + offsetX, self.contentSize.height * 0.5 + offsetY);
 }
 
 #pragma mark - 验证当前大小是否被修改
@@ -518,8 +581,11 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     }
     
     /** 重置变形 */
-    self.transform = CGAffineTransformIdentity;
-    CGRect oldRect = self.frame;
+//    self.transform = CGAffineTransformIdentity;
+    /** 不用重置变形，使用center与bounds来计算原来的frame */
+    CGPoint center = self.center;
+    CGRect bounds = self.bounds;
+    CGRect oldRect = CGRectMake(center.x-0.5*bounds.size.width, center.y-0.5*bounds.size.height, bounds.size.width, bounds.size.height);
     CGFloat width = CGRectGetWidth(oldRect);
     CGFloat height = CGRectGetHeight(oldRect);
     if (angle%180 != 0) { /** 旋转基数时需要互换宽高 */
@@ -552,6 +618,10 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
 {
     /** 重置最小缩放比例 */
     CGRect rotateNormalRect = CGRectApplyAffineTransform(self.normalRect, self.transform);
+    if (CGSizeEqualToSize(rotateNormalRect.size, CGSizeZero)) {
+        /** size为0时候不能继续，否则minimumZoomScale=+Inf，会无法缩放 */
+        return;
+    }
     CGFloat minimumZoomScale = MAX(CGRectGetWidth(self.frame) / CGRectGetWidth(rotateNormalRect), CGRectGetHeight(self.frame) / CGRectGetHeight(rotateNormalRect));
     self.minimumZoomScale = minimumZoomScale;
 }
@@ -589,23 +659,13 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     return view;
 }
 
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch
+{
+    /** 控制自身手势 */
+    return self.useGesture;
+}
+
 #pragma mark - LFEditingProtocol
-
-- (void)setEditDelegate:(id<LFPhotoEditDelegate>)editDelegate
-{
-    self.zoomingView.editDelegate = editDelegate;
-}
-
-- (id<LFPhotoEditDelegate>)editDelegate
-{
-    return self.zoomingView.editDelegate;
-}
-
-/** 禁用其他功能 */
-- (void)photoEditEnable:(BOOL)enable
-{
-    [self.zoomingView photoEditEnable:enable];
-}
 
 #pragma mark - 数据
 - (NSDictionary *)photoEditData
@@ -613,7 +673,7 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     NSMutableDictionary *data = [@{} mutableCopy];
     
     if ([self canReset]) { /** 可还原证明已编辑过 */
-//        CGRect trueFrame = CGRectApplyAffineTransform(self.frame, CGAffineTransformInvert(self.transform));
+        //        CGRect trueFrame = CGRectApplyAffineTransform(self.frame, CGAffineTransformInvert(self.transform));
         NSDictionary *myData = @{kLFClippingViewData_frame:[NSValue valueWithCGRect:self.saveRect]
                                  , kLFClippingViewData_zoomScale:@(self.zoomScale)
                                  , kLFClippingViewData_contentSize:[NSValue valueWithCGSize:self.contentSize]
@@ -654,118 +714,6 @@ NSString *const kLFClippingViewData_zoomingView = @"LFClippingViewData_zoomingVi
     }
     
     self.zoomingView.photoEditData = photoEditData[kLFClippingViewData_zoomingView];
-}
-
-#pragma mark - 滤镜功能
-/** 滤镜类型 */
-- (void)changeFilterColorMatrixType:(LFColorMatrixType)cmType
-{
-    [self.zoomingView changeFilterColorMatrixType:cmType];
-}
-/** 当前使用滤镜类型 */
-- (LFColorMatrixType)getFilterColorMatrixType
-{
-    return [self.zoomingView getFilterColorMatrixType];
-}
-/** 获取滤镜图片 */
-- (UIImage *)getFilterImage
-{
-    return [self.zoomingView getFilterImage];
-}
-
-#pragma mark - 绘画功能
-/** 启用绘画功能 */
-- (void)setDrawEnable:(BOOL)drawEnable
-{
-    self.zoomingView.drawEnable = drawEnable;
-}
-- (BOOL)drawEnable
-{
-    return self.zoomingView.drawEnable;
-}
-
-- (BOOL)drawCanUndo
-{
-    return [self.zoomingView drawCanUndo];
-}
-- (void)drawUndo
-{
-    [self.zoomingView drawUndo];
-}
-/** 设置绘画颜色 */
-- (void)setDrawColor:(UIColor *)color
-{
-    [self.zoomingView setDrawColor:color];
-}
-
-#pragma mark - 贴图功能
-/** 取消激活贴图 */
-- (void)stickerDeactivated
-{
-    [self.zoomingView stickerDeactivated];
-}
-- (void)activeSelectStickerView
-{
-    [self.zoomingView activeSelectStickerView];
-}
-/** 删除选中贴图 */
-- (void)removeSelectStickerView
-{
-    [self.zoomingView removeSelectStickerView];
-}
-/** 获取选中贴图的内容 */
-- (LFText *)getSelectStickerText
-{
-    return [self.zoomingView getSelectStickerText];
-}
-/** 更改选中贴图内容 */
-- (void)changeSelectStickerText:(LFText *)text
-{
-    [self.zoomingView changeSelectStickerText:text];
-}
-
-/** 创建贴图 */
-- (void)createStickerImage:(UIImage *)image
-{
-    [self.zoomingView createStickerImage:image];
-}
-
-#pragma mark - 文字功能
-/** 创建文字 */
-- (void)createStickerText:(LFText *)text
-{
-    [self.zoomingView createStickerText:text];
-}
-
-#pragma mark - 模糊功能
-/** 启用模糊功能 */
-- (void)setSplashEnable:(BOOL)splashEnable
-{
-    self.zoomingView.splashEnable = splashEnable;
-}
-- (BOOL)splashEnable
-{
-    return self.zoomingView.splashEnable;
-}
-/** 是否可撤销 */
-- (BOOL)splashCanUndo
-{
-    return [self.zoomingView splashCanUndo];
-}
-/** 撤销模糊 */
-- (void)splashUndo
-{
-    [self.zoomingView splashUndo];
-}
-
-- (void)setSplashState:(BOOL)splashState
-{
-    self.zoomingView.splashState = splashState;
-}
-
-- (BOOL)splashState
-{
-    return self.zoomingView.splashState;
 }
 
 @end

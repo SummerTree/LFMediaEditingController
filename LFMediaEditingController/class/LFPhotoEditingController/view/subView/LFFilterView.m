@@ -35,16 +35,27 @@ NSString *const kLFFilterViewData = @"LFFilterViewData";
     self.contentMode = UIViewContentModeScaleAspectFit;
     
     UIImageView *imageView = [[UIImageView alloc] initWithFrame:self.bounds];
-    imageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+//    imageView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     imageView.backgroundColor = [UIColor clearColor];
     imageView.contentMode = UIViewContentModeScaleAspectFit;
     [self addSubview:imageView];
     self.imageView = imageView;
 }
 
-- (UIImage *)image
+- (void)layoutSubviews
+{
+    [super layoutSubviews];
+    self.imageView.frame = self.bounds;
+}
+
+- (UIImage *)filterImage
 {
     return self.imageView.image;
+}
+
+- (UIImage *)image
+{
+    return self.defaultImage;
 }
 
 - (void)setImage:(UIImage *)image

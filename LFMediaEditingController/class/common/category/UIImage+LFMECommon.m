@@ -15,13 +15,6 @@
     
     if (self.imageOrientation == UIImageOrientationUp) return self;
     
-    CGImageRef cgimg = [self LFME_cgFixOrientation];
-    UIImage *img = [UIImage imageWithCGImage:cgimg];
-    CGImageRelease(cgimg);
-    return img;
-}
-
-- (CGImageRef)LFME_cgFixOrientation {
     // No-op if the orientation is already correct
     
     UIImage *editImg = self;//[UIImage imageWithData:UIImagePNGRepresentation(self)];
@@ -57,7 +50,9 @@
     
     CGContextRelease(ctx);
     
-    return cgimg;
+    UIImage *img = [UIImage imageWithCGImage:cgimg];
+    CGImageRelease(cgimg);
+    return img;
 }
 
 + (CGAffineTransform)LFME_exchangeOrientation:(UIImageOrientation)imageOrientation size:(CGSize)size
@@ -151,7 +146,7 @@
     return CGSizeMake(ceilf(scaledWidth), ceilf(scaledHeight));
 }
 
-- (UIImage*)LFME_scaleToSize:(CGSize)size
+- (UIImage*)LFME_scaleToFitSize:(CGSize)size
 {
     if (CGSizeEqualToSize(self.size, size)) {
         return self;
@@ -195,10 +190,60 @@
     return scaledImage;
 }
 
+- (UIImage*)LFME_scaleToFillSize:(CGSize)size
+{
+    if (CGSizeEqualToSize(self.size, size)) {
+        return self;
+    }
+    
+    // 创建一个context
+    // 并把它设置成为当前正在使用的context
+    UIGraphicsBeginImageContextWithOptions(size, NO, 0);
+    
+    // 绘制改变大小的图片
+    [self drawInRect:CGRectMake(0, 0, size.width, size.height)];
+    
+    // 从当前context中创建一个改变大小后的图片
+    UIImage* scaledImage = UIGraphicsGetImageFromCurrentImageContext();
+    
+    // 使当前的context出堆栈
+    UIGraphicsEndImageContext();
+    
+    // 返回新的改变大小后的图片
+    return scaledImage;
+}
+
+//截取部分图像
+- (UIImage *)LFME_cropInRect:(CGRect)rect
+{
+    UIImage *smallImage = nil;
+    CGImageRef sourceImageRef = [self CGImage];
+    CGImageRef newImageRef = CGImageCreateWithImageInRect(sourceImageRef, rect);
+    if (newImageRef) {
+        smallImage = [UIImage imageWithCGImage:newImageRef scale:self.scale orientation:self.imageOrientation];
+        CGImageRelease(newImageRef);
+    }
+
+    return smallImage;
+}
+
+/** 合并图片（图片大小一致） */
 - (UIImage *)LFME_mergeimages:(NSArray <UIImage *>*)images
 {
     UIGraphicsBeginImageContextWithOptions(self.size ,NO, 0);
     [self drawInRect:CGRectMake(0, 0, self.size.width, self.size.height)];
+    for (UIImage *image in images) {
+        [image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
+    }
+    UIImage *mergeImage = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return mergeImage;
+}
+
+/** 合并图片(图片大小以第一张为准) */
++ (UIImage *)LFME_mergeimages:(NSArray <UIImage *>*)images
+{
+    UIGraphicsBeginImageContextWithOptions(images.firstObject.size ,NO, 0);
     for (UIImage *image in images) {
         [image drawInRect:CGRectMake(0, 0, image.size.width, image.size.height)];
     }
@@ -214,8 +259,8 @@
     CGAffineTransform t = CGAffineTransformMakeRotation(radians);
     CGRect clipTransRect = CGRectApplyAffineTransform(CGRectMake(0,0,self.size.width, self.size.height), t);
     CGSize rotatedSize = clipTransRect.size;
-    rotatedSize.width = (rotatedSize.width+FLT_EPSILON);
-    rotatedSize.height = (rotatedSize.height+FLT_EPSILON);
+    rotatedSize.width = ((int)(rotatedSize.width+0.5)*1.f);
+    rotatedSize.height = ((int)(rotatedSize.height+0.5)*1.f);
     
     // Create the bitmap context
     UIGraphicsBeginImageContext(rotatedSize);
@@ -236,6 +281,46 @@
     
     return newImage;
 }
+
+- (UIColor *)colorAtPixel:(CGPoint)point {
+    // Cancel if point is outside image coordinates
+    if (!CGRectContainsPoint(CGRectMake(0.0f, 0.0f, self.size.width, self.size.height), point)) {
+        return nil;
+    }
+    
+    NSInteger pointX = trunc(point.x);
+    NSInteger pointY = trunc(point.y);
+    CGImageRef cgImage = self.CGImage;
+    NSUInteger width = self.size.width;
+    NSUInteger height = self.size.height;
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    int bytesPerPixel = 4;
+    int bytesPerRow = bytesPerPixel * 1;
+    NSUInteger bitsPerComponent = 8;
+    unsigned char pixelData[4] = { 0, 0, 0, 0 };
+    CGContextRef context = CGBitmapContextCreate(pixelData,
+                                                 1,
+                                                 1,
+                                                 bitsPerComponent,
+                                                 bytesPerRow,
+                                                 colorSpace,
+                                                 kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(colorSpace);
+    CGContextSetBlendMode(context, kCGBlendModeCopy);
+    
+    // Draw the pixel we are interested in onto the bitmap context
+    CGContextTranslateCTM(context, -pointX, pointY-(CGFloat)height);
+    CGContextDrawImage(context, CGRectMake(0.0f, 0.0f, (CGFloat)width, (CGFloat)height), cgImage);
+    CGContextRelease(context);
+    
+    // Convert color values [0..255] to floats [0.0..1.0]
+    CGFloat red   = (CGFloat)pixelData[0] / 255.0f;
+    CGFloat green = (CGFloat)pixelData[1] / 255.0f;
+    CGFloat blue  = (CGFloat)pixelData[2] / 255.0f;
+    CGFloat alpha = (CGFloat)pixelData[3] / 255.0f;
+    return [UIColor colorWithRed:red green:green blue:blue alpha:alpha];
+}
+
 
 #define kBitsPerComponent (8)
 #define kBitsPerPixel (32)
